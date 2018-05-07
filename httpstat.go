@@ -9,7 +9,6 @@ import (
 	"io"
 	"strings"
 	"time"
-	"net"
 )
 
 // Result stores httpstat info.
@@ -72,8 +71,8 @@ func (r *Result) durations() map[string]time.Duration {
 	}
 }
 
-func (r *Result) addresses() map[string]net.IP {
-	return map[string]net.IP{
+func (r *Result) addresses() map[string]string {
+	return map[string]string{
 		"LocalAddr":  r.LocalAddr,
 		"RemoteAddr": r.RemoteAddr,
 	}
