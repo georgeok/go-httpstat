@@ -8,8 +8,7 @@ import (
 	"net/http"
 	"os"
 	"time"
-
-	"github.com/tcnksm/go-httpstat"
+	"github.com/georgeok/go-httpstat"
 )
 
 func main() {
