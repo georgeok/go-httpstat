@@ -24,3 +24,7 @@ install:
 
 script:
   - make test-all
+
+cache:
+  directories:
+    - $GOPATH/pkg/dep
