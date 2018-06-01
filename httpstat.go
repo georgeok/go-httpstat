@@ -44,11 +44,9 @@ func WithHTTPStat(ctx context.Context, r *Result) context.Context {
 		dnsDone       time.Time
 		tcpStart      time.Time
 		tcpDone       time.Time
-		tlsStart      time.Time
 		tlsDone       time.Time
 		serverStart   time.Time
 		serverDone    time.Time
-		transferStart time.Time
 
 		// isTLS is true when connection seems to use TLS
 		isTLS bool
@@ -90,7 +88,6 @@ func WithHTTPStat(ctx context.Context, r *Result) context.Context {
 
 		TLSHandshakeStart: func() {
 			isTLS = true
-			tlsStart = time.Now()
 		},
 
 		TLSHandshakeDone: func(_ tls.ConnectionState, _ error) {
@@ -130,7 +127,6 @@ func WithHTTPStat(ctx context.Context, r *Result) context.Context {
 				dnsDone = now
 				tcpStart = now
 				tcpDone = now
-				tlsStart = now
 				tlsDone = now
 			}
 
@@ -144,7 +140,6 @@ func WithHTTPStat(ctx context.Context, r *Result) context.Context {
 		GotFirstResponseByte: func() {
 			serverDone = time.Now()
 			r.StartTransfer += serverDone.Sub(dnsStart)
-			transferStart = serverDone
 		},
 	})
 
