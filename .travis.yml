@@ -15,8 +15,5 @@ git:
 notifications:
   email: false
 
-before_install:
-  - dep ensure -update
-
 script:
   - make test-all
