@@ -9,6 +9,8 @@ import (
 	"net/http"
 	"testing"
 	"time"
+	"github.com/ahmetb/go-httpbin.git"
+	"net/http/httptest"
 )
 
 const (
@@ -64,9 +66,6 @@ func TestHTTPStat_HTTPS(t *testing.T) {
 	res.Body.Close()
 	result.End(time.Now())
 
-	if !result.isTLS {
-		t.Fatal("isTLS should be true")
-	}
 
 	for k, d := range result.durations() {
 		if d <= 0*time.Millisecond {
@@ -91,13 +90,6 @@ func TestHTTPStat_HTTP(t *testing.T) {
 	res.Body.Close()
 	result.End(time.Now())
 
-	if result.isTLS {
-		t.Fatal("isTLS should be false")
-	}
-
-	if got, want := result.TLSHandshake, 0*time.Millisecond; got != want {
-		t.Fatalf("TLSHandshake time of HTTP = %d, want %d", got, want)
-	}
 
 	// Except TLS should be non zero
 	durations := result.durations()
@@ -142,19 +134,6 @@ func TestHTTPStat_KeepAlive(t *testing.T) {
 	res2.Body.Close()
 	result.End(time.Now())
 
-	// The following values should be zero.
-	// Because connection is reused.
-	durations := []time.Duration{
-		result.DNSLookup,
-		result.TCPConnection,
-		result.TLSHandshake,
-	}
-
-	for i, d := range durations {
-		if got, want := d, 0*time.Millisecond; got != want {
-			t.Fatalf("#%d expect %d to be eq %d", i, got, want)
-		}
-	}
 }
 
 func TestHTTPStat_beforeGO17(t *testing.T) {
@@ -186,18 +165,6 @@ func TestHTTPStat_beforeGO17(t *testing.T) {
 	res.Body.Close()
 	result.End(time.Now())
 
-	// The following values are not mesured.
-	durations := []time.Duration{
-		result.DNSLookup,
-		result.TCPConnection,
-		// result.TLSHandshake,
-	}
-
-	for i, d := range durations {
-		if got, want := d, 0*time.Millisecond; got != want {
-			t.Fatalf("#%d expect %d to be eq %d", i, got, want)
-		}
-	}
 }
 
 func TestTotal_Zero(t *testing.T) {
@@ -209,19 +176,10 @@ func TestTotal_Zero(t *testing.T) {
 		t.Fatalf("Total time is %d, want %d", result.total, zero)
 	}
 
-	if result.contentTransfer != zero {
-		t.Fatalf("Total time is %d, want %d", result.contentTransfer, zero)
-	}
 }
 
 func TestHTTPStat_Formatter(t *testing.T) {
 	result := Result{
-		DNSLookup:        100 * time.Millisecond,
-		TCPConnection:    100 * time.Millisecond,
-		TLSHandshake:     100 * time.Millisecond,
-		ServerProcessing: 100 * time.Millisecond,
-		contentTransfer:  100 * time.Millisecond,
-
 		NameLookup:    100 * time.Millisecond,
 		Connect:       100 * time.Millisecond,
 		PreTransfer:   100 * time.Millisecond,
@@ -231,13 +189,7 @@ func TestHTTPStat_Formatter(t *testing.T) {
 		//t5: time.Now(),
 	}
 
-	want := `DNS lookup:         100 ms
-TCP connection:     100 ms
-TLS handshake:      100 ms
-Server processing:  100 ms
-Content transfer:   100 ms
-
-Name Lookup:     100 ms
+	want := `Name Lookup:     100 ms
 Connect:         100 ms
 Pre Transfer:    100 ms
 Start Transfer:  100 ms
@@ -247,5 +199,35 @@ Total:           100 ms
 	fmt.Fprintf(&buf, "%+v", result)
 	if got := buf.String(); want != got {
 		t.Fatalf("expect to be eq:\n\nwant:\n\n%s\ngot:\n\n%s\n", want, got)
+	}
+}
+
+func TestHTTPStat_HTTP_Redirects(t *testing.T) {
+	srv := httptest.NewServer(httpbin.GetMux())
+    defer srv.Close()
+
+	var result Result
+	req := NewRequest(t, srv.URL+"/redirect-to?url=https://www.google.com", &result)
+	client := DefaultClient()
+	res, err := client.Do(req)
+	if err != nil {
+		t.Fatal("client.Do failed:", err)
+	}
+
+	if _, err := io.Copy(ioutil.Discard, res.Body); err != nil {
+		t.Fatal("io.Copy failed:", err)
+	}
+	result.End(time.Now())
+	res.Body.Close()
+
+	fmt.Println(result)
+
+	durations := result.durations()
+	delete(durations, "TLSHandshake")
+
+	for k, d := range durations {
+		if d <= 0*time.Millisecond {
+			t.Fatalf("expect %s to be non-zero", k)
+		}
 	}
 }

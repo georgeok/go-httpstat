@@ -30,129 +30,121 @@ type Result struct {
 	StartTransfer time.Duration
 	total         time.Duration
 
-	// The following are duration for each phase
-	DNSLookup        time.Duration
-	TCPConnection    time.Duration
-	TLSHandshake     time.Duration
-	ServerProcessing time.Duration
-	contentTransfer  time.Duration
-
-	localAddr  string
-	remoteAddr string
-
-	dnsStart      time.Time
-	dnsDone       time.Time
-	tcpStart      time.Time
-	tcpDone       time.Time
-	tlsStart      time.Time
-	tlsDone       time.Time
-	serverStart   time.Time
-	serverDone    time.Time
-	transferStart time.Time
-	transferDone  time.Time // need to be provided from outside
-
-	// isTLS is true when connection seems to use TLS
-	isTLS bool
-
-	// isReused is true when connection is reused (keep-alive)
-	isReused bool
+	localAddr    string
+	remoteAddr   string
+	start        time.Time // the zero time for the request
+	transferDone time.Time // need to be provided from outside
 }
 
 // WithHTTPStat is a wrapper of httptrace.WithClientTrace. It records the
 // time of each httptrace hooks.
 func WithHTTPStat(ctx context.Context, r *Result) context.Context {
+	var (
+		dnsStart      time.Time
+		dnsDone       time.Time
+		tcpStart      time.Time
+		tcpDone       time.Time
+		tlsStart      time.Time
+		tlsDone       time.Time
+		serverStart   time.Time
+		serverDone    time.Time
+		transferStart time.Time
+
+		// isTLS is true when connection seems to use TLS
+		isTLS bool
+		// isReused is true when connection is reused (keep-alive)
+		isReused bool
+	)
+
 	return httptrace.WithClientTrace(ctx, &httptrace.ClientTrace{
 		DNSStart: func(i httptrace.DNSStartInfo) {
-			r.dnsStart = time.Now()
+			dnsStart = time.Now()
+			if r.start.IsZero() {
+				r.start = dnsStart
+			}
 		},
 
 		DNSDone: func(i httptrace.DNSDoneInfo) {
-			r.dnsDone = time.Now()
-
-			r.DNSLookup = r.dnsDone.Sub(r.dnsStart)
-			r.NameLookup = r.DNSLookup
+			dnsDone = time.Now()
+			r.NameLookup += dnsDone.Sub(dnsStart)
 		},
 
 		ConnectStart: func(_, _ string) {
-			r.tcpStart = time.Now()
+			tcpStart = time.Now()
 
 			// When connecting to IP (When no DNS lookup)
-			if r.dnsStart.IsZero() {
-				r.dnsStart = r.tcpStart
-				r.dnsDone = r.tcpStart
+			if dnsStart.IsZero() {
+				dnsStart = tcpStart
+				dnsDone = tcpStart
+			}
+
+			if r.start.IsZero() {
+				r.start = tcpStart
 			}
 		},
 
 		ConnectDone: func(network, addr string, err error) {
-			r.tcpDone = time.Now()
-
-			r.TCPConnection = r.tcpDone.Sub(r.tcpStart)
-			r.Connect = r.tcpDone.Sub(r.dnsStart)
+			tcpDone = time.Now()
+			r.Connect += tcpDone.Sub(dnsStart)
 		},
 
 		TLSHandshakeStart: func() {
-			r.isTLS = true
-			r.tlsStart = time.Now()
+			isTLS = true
+			tlsStart = time.Now()
 		},
 
 		TLSHandshakeDone: func(_ tls.ConnectionState, _ error) {
-			r.tlsDone = time.Now()
-
-			r.TLSHandshake = r.tlsDone.Sub(r.tlsStart)
-			r.PreTransfer = r.tlsDone.Sub(r.dnsStart)
+			tlsDone = time.Now()
+			r.PreTransfer += tlsDone.Sub(dnsStart)
 		},
 
 		GotConn: func(i httptrace.GotConnInfo) {
 			// Handle when keep alive is used and connection is reused.
 			// DNSStart(Done) and ConnectStart(Done) is skipped
 			if i.Reused {
-				r.isReused = true
+				isReused = true
 			}
 			r.localAddr = strings.Split(i.Conn.LocalAddr().String(), ":")[0]
 			r.remoteAddr = strings.Split(i.Conn.RemoteAddr().String(), ":")[0]
 		},
 
 		WroteRequest: func(info httptrace.WroteRequestInfo) {
-			r.serverStart = time.Now()
+			serverStart = time.Now()
 
 			// When client doesn't use DialContext or using old (before go1.7) `net`
 			// pakcage, DNS/TCP/TLS hook is not called.
-			if r.dnsStart.IsZero() && r.tcpStart.IsZero() {
-				now := r.serverStart
+			if dnsStart.IsZero() && tcpStart.IsZero() {
+				now := serverStart
 
-				r.dnsStart = now
-				r.dnsDone = now
-				r.tcpStart = now
-				r.tcpDone = now
+				dnsStart = now
+				dnsDone = now
+				tcpStart = now
+				tcpDone = now
 			}
 
 			// When connection is re-used, DNS/TCP/TLS hook is not called.
-			if r.isReused {
-				now := r.serverStart
+			if isReused {
+				now := serverStart
 
-				r.dnsStart = now
-				r.dnsDone = now
-				r.tcpStart = now
-				r.tcpDone = now
-				r.tlsStart = now
-				r.tlsDone = now
+				dnsStart = now
+				dnsDone = now
+				tcpStart = now
+				tcpDone = now
+				tlsStart = now
+				tlsDone = now
 			}
 
-			if r.isTLS {
+			if isTLS {
 				return
 			}
 
-			r.TLSHandshake = r.tcpDone.Sub(r.tcpDone)
-			r.PreTransfer = r.Connect
+			r.PreTransfer += r.Connect
 		},
 
 		GotFirstResponseByte: func() {
-			r.serverDone = time.Now()
-
-			r.ServerProcessing = r.serverDone.Sub(r.serverStart)
-			r.StartTransfer = r.serverDone.Sub(r.dnsStart)
-
-			r.transferStart = r.serverDone
+			serverDone = time.Now()
+			r.StartTransfer += serverDone.Sub(dnsStart)
+			transferStart = serverDone
 		},
 	})
 
@@ -160,12 +152,6 @@ func WithHTTPStat(ctx context.Context, r *Result) context.Context {
 
 func (r *Result) durations() map[string]time.Duration {
 	return map[string]time.Duration{
-		"DNSLookup":        r.DNSLookup,
-		"TCPConnection":    r.TCPConnection,
-		"TLSHandshake":     r.TLSHandshake,
-		"ServerProcessing": r.ServerProcessing,
-		"ContentTransfer":  r.contentTransfer,
-
 		"NameLookup":    r.NameLookup,
 		"Connect":       r.Connect,
 		"PreTransfer":   r.Connect,
@@ -185,22 +171,6 @@ func (r *Result) RemoteIP() string {
 // Format formats stats result.
 func (r Result) Format(s fmt.State, verb rune) {
 	var buf bytes.Buffer
-	fmt.Fprintf(&buf, "DNS lookup:        %4d ms\n",
-		int(r.DNSLookup/time.Millisecond))
-	fmt.Fprintf(&buf, "TCP connection:    %4d ms\n",
-		int(r.TCPConnection/time.Millisecond))
-	fmt.Fprintf(&buf, "TLS handshake:     %4d ms\n",
-		int(r.TLSHandshake/time.Millisecond))
-	fmt.Fprintf(&buf, "Server processing: %4d ms\n",
-		int(r.ServerProcessing/time.Millisecond))
-
-	if r.total > 0 {
-		fmt.Fprintf(&buf, "Content transfer:  %4d ms\n\n",
-			int(r.contentTransfer/time.Millisecond))
-	} else {
-		fmt.Fprintf(&buf, "Content transfer:  %4s ms\n\n", "-")
-	}
-
 	fmt.Fprintf(&buf, "Name Lookup:    %4d ms\n",
 		int(r.NameLookup/time.Millisecond))
 	fmt.Fprintf(&buf, "Connect:        %4d ms\n",
@@ -224,27 +194,22 @@ func (r Result) Format(s fmt.State, verb rune) {
 // This must be called after reading response body.
 func (r *Result) End(t time.Time) {
 	r.transferDone = t
-
 	// This means result is empty (it does nothing).
 	// Skip setting value(contentTransfer and total will be zero).
-	if r.dnsStart.IsZero() {
+	if r.start.IsZero() {
 		return
 	}
-
-	r.contentTransfer = r.transferDone.Sub(r.transferStart)
-	r.total = r.transferDone.Sub(r.dnsStart)
-}
-
-// ContentTransfer returns the duration of content transfer time.
-// It is from first response byte to the given time. The time must
-// be time after read body (go-httpstat can not detect that time).
-func (r *Result) ContentTransfer(t time.Time) time.Duration {
-	return t.Sub(r.serverDone)
+	r.total = r.transferDone.Sub(r.start)
 }
 
 // Total returns the duration of total http request.
 // It is from dns lookup start time to the given time. The
 // time must be time after read body (go-httpstat can not detect that time).
 func (r *Result) Total(t time.Time) time.Duration {
-	return t.Sub(r.dnsStart)
+	if r.total == 0 {
+		return t.Sub(r.start)
+	} else {
+		return r.total
+	}
+
 }
