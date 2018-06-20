@@ -40,13 +40,13 @@ type Result struct {
 // time of each httptrace hooks.
 func WithHTTPStat(ctx context.Context, r *Result) context.Context {
 	var (
-		dnsStart      time.Time
-		dnsDone       time.Time
-		tcpStart      time.Time
-		tcpDone       time.Time
-		tlsDone       time.Time
-		serverStart   time.Time
-		serverDone    time.Time
+		dnsStart    time.Time
+		dnsDone     time.Time
+		tcpStart    time.Time
+		tcpDone     time.Time
+		tlsDone     time.Time
+		serverStart time.Time
+		serverDone  time.Time
 
 		// isTLS is true when connection seems to use TLS
 		isTLS bool
@@ -101,8 +101,12 @@ func WithHTTPStat(ctx context.Context, r *Result) context.Context {
 			if i.Reused {
 				isReused = true
 			}
-			r.localAddr = strings.Split(i.Conn.LocalAddr().String(), ":")[0]
-			r.remoteAddr = strings.Split(i.Conn.RemoteAddr().String(), ":")[0]
+			if i.Conn.LocalAddr() != nil {
+				r.localAddr = strings.Split(i.Conn.LocalAddr().String(), ":")[0]
+			}
+			if i.Conn.RemoteAddr() != nil {
+				r.remoteAddr = strings.Split(i.Conn.RemoteAddr().String(), ":")[0]
+			}
 		},
 
 		WroteRequest: func(info httptrace.WroteRequestInfo) {
@@ -160,7 +164,7 @@ func (r *Result) LocalIp() string {
 }
 
 func (r *Result) RemoteIP() string {
-	return r.localAddr
+	return r.remoteAddr
 }
 
 // Format formats stats result.

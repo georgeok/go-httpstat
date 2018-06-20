@@ -11,6 +11,7 @@ import (
 	"time"
 	"github.com/ahmetb/go-httpbin.git"
 	"net/http/httptest"
+	"net/http/httputil"
 )
 
 const (
@@ -209,6 +210,7 @@ func TestHTTPStat_HTTP_Redirects(t *testing.T) {
 	var result Result
 	req := NewRequest(t, srv.URL+"/redirect-to?url=https://www.google.com", &result)
 	client := DefaultClient()
+	httputil.DumpRequestOut(req,true)
 	res, err := client.Do(req)
 	if err != nil {
 		t.Fatal("client.Do failed:", err)
