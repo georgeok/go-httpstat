@@ -98,8 +98,17 @@ func WithHTTPStat(ctx context.Context, r *Result) context.Context {
 		GotConn: func(i httptrace.GotConnInfo) {
 			// Handle when keep alive is used and connection is reused.
 			// DNSStart(Done) and ConnectStart(Done) is skipped
+			gotC := time.Now()
 			if i.Reused {
 				isReused = true
+				if dnsStart.IsZero() {
+					dnsStart = gotC
+					dnsDone = gotC
+				}
+
+				if r.start.IsZero() {
+					r.start = gotC
+				}
 			}
 			if i.Conn.LocalAddr() != nil {
 				r.localAddr = strings.Split(i.Conn.LocalAddr().String(), ":")[0]
